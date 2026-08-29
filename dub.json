@@ -1,0 +1,9 @@
+{
+	"authors": [
+		"kworqu"
+	],
+	"copyright": "Copyright © 2026, Shawarma",
+	"description": "SHML to HTML compiler",
+	"license": "MIT",
+	"name": "shml"
+}

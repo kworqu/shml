@@ -25,7 +25,8 @@ class ASTNode {
     string[] classes;                   
     string[string] attributes;          
     string[string] attrVars;            
-    bool isSelfClosing = false;         
+    bool isSelfClosing = false;      
+    bool isInline = false;   
     
     string textValue;                   
     string varName;                     
@@ -430,17 +431,40 @@ class Parser {
                 }
                 else if (current.type == TokenType.Tag) {
                     Token inlineTagTok = consume();
+                    
+                    ASTNode inlineNode = new ASTNode(NodeType.Element);
+                    inlineNode.tag = inlineTagTok.value;
+                    inlineNode.isInline = true;
+                    
+                    while (peek().type == TokenType.Dot || peek().type == TokenType.Hash) {
+                        Token modTok = consume();
+                        if (peek().type == TokenType.Tag) {
+                            if (modTok.type == TokenType.Dot) {
+                                inlineNode.classes ~= consume().value;
+                            } else {
+                                inlineNode.id = consume().value;
+                            }
+                        } else {
+                            printError(peek().line, peek().column, "Expected identifier after . or #");
+                            hasErrors = true; return false;
+                        }
+                    }
+                    
                     if (peek().type == TokenType.Exclamation) {
-                        consume(); 
-                        ASTNode inlineNode = new ASTNode(NodeType.Element);
-                        inlineNode.tag = inlineTagTok.value;
+                        consume();
                         
-                        if (peek().type == TokenType.String) {
+                        if (peek().type == TokenType.LParen) {
+                            consume();
+                            parseAttributes(inlineNode);
+                        }
+                        
+                        if (peek().type == TokenType.String || peek().type == TokenType.AtString) {
+                            Token bodyTok = consume();
                             ASTNode textNode = new ASTNode(NodeType.Text);
-                            textNode.textValue = consume().value;
+                            textNode.textValue = bodyTok.value;
                             inlineNode.children ~= textNode;
                         } else if (peek().type == TokenType.Dollar) {
-                            consume(); 
+                            consume();
                             string vName = consume().value;
                             while (peek().type == TokenType.Dot) {
                                 consume();
@@ -449,14 +473,11 @@ class Parser {
                             ASTNode varNode = new ASTNode(NodeType.Variable);
                             varNode.varName = vName;
                             inlineNode.children ~= varNode;
-                        } else if (peek().type == TokenType.LParen) {
-                            consume(); 
-                            parseAttributes(inlineNode);
-                            inlineNode.isSelfClosing = true;
                         } else {
-                            printError(peek().line, peek().column, "Expected string, variable or '(' in inline tag");
+                            printError(peek().line, peek().column, "Expected string or variable in inline tag");
                             hasErrors = true; return false;
                         }
+                        
                         parent.children ~= inlineNode;
                     } else {
                         printError(inlineTagTok.line, inlineTagTok.column, "Expected '!' after inline tag");
@@ -595,7 +616,9 @@ class HtmlGenerator {
 
         bool isInlineContent = (node.children.length > 0);
         foreach (child; node.children) {
-            if (child.type == NodeType.Element || child.type == NodeType.ClassCall || child.type == NodeType.SlotBlock) {
+            if ((child.type == NodeType.Element && !child.isInline) || 
+                child.type == NodeType.ClassCall || 
+                child.type == NodeType.SlotBlock) {
                 isInlineContent = false;
                 break;
             }

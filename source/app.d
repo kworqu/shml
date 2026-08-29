@@ -521,6 +521,10 @@ class HtmlGenerator {
 
         string indentStr = (level >= 0) ? replicate("    ", level) : "";
 
+        if (node.type == NodeType.Text) {
+            return indentStr ~ node.textValue ~ "\n";
+        }
+
         if (node.type == NodeType.Variable) {
             if (node.varName == "children" && slots !is null && "children" in slots) {
                 string res = "";

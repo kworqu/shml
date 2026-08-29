@@ -49,7 +49,7 @@ class ASTNode {
 
 enum TokenType { 
     Indent, Tag, Dot, Hash, Colon, Semicolon, LParen, RParen, Equals, 
-    Comma, String, AtString, At, Tilde, Exclamation, Dollar, Ampersand, EOL 
+    Comma, String, AtString, At, Tilde, Exclamation, QuestionMark, Dollar, Ampersand, EOL 
 }
 
 // Token
@@ -70,18 +70,21 @@ class Lexer {
         size_t lineNum = 1;
         size_t colNum = 1;
         bool startOfLine = true;
+        int currentIndent = 0;
+        string currentLineTag = "";
 
         while (cursor < input.length) {
             if (startOfLine) {
-                int indent = 0;
+                currentIndent = 0;
+                currentLineTag = "";
                 while (cursor < input.length && (input[cursor] == ' ' || input[cursor] == '\t')) {
-                    indent += (input[cursor] == '\t') ? 4 : 1;
+                    currentIndent += (input[cursor] == '\t') ? 4 : 1;
                     cursor++; colNum++;
                 }
                 
                 if (cursor < input.length && (input[cursor] == '\n' || input[cursor] == '\r')) {
                 } else {
-                    tokens ~= Token(TokenType.Indent, to!string(indent), lineNum, 1);
+                    tokens ~= Token(TokenType.Indent, to!string(currentIndent), lineNum, 1);
                 }
                 startOfLine = false;
             }
@@ -108,7 +111,110 @@ class Lexer {
 
             if (c == '.') { tokens ~= Token(TokenType.Dot, ".", lineNum, col); cursor++; colNum++; }
             else if (c == '#') { tokens ~= Token(TokenType.Hash, "#", lineNum, col); cursor++; colNum++; }
-            else if (c == ':') { tokens ~= Token(TokenType.Colon, ":", lineNum, col); cursor++; colNum++; }
+            else if (c == ':') { 
+                tokens ~= Token(TokenType.Colon, ":", lineNum, col); 
+                cursor++; colNum++;
+
+                if (currentLineTag == "script" || currentLineTag == "style") {
+                    size_t tempCursor = cursor;
+                    size_t tempCol = colNum;
+                    while (tempCursor < input.length && (input[tempCursor] == ' ' || input[tempCursor] == '\t')) {
+                        tempCursor++;
+                        tempCol++;
+                    }
+
+                    if (tempCursor < input.length && input[tempCursor] != '\n' && input[tempCursor] != '\r') {
+                        cursor = tempCursor;
+                        colNum = tempCol;
+                        string rawVal = "";
+                        size_t startCol = colNum;
+                        while (cursor < input.length && input[cursor] != '\n' && input[cursor] != '\r') {
+                            rawVal ~= input[cursor];
+                            cursor++; colNum++;
+                        }
+                        tokens ~= Token(TokenType.String, rawVal, lineNum, startCol);
+                    } else {
+                        cursor = tempCursor;
+                        colNum = tempCol;
+                        if (cursor < input.length && input[cursor] == '\r') cursor++;
+                        if (cursor < input.length && input[cursor] == '\n') cursor++;
+                        
+                        tokens ~= Token(TokenType.EOL, "", lineNum, colNum);
+                        lineNum++; colNum = 1;
+                        startOfLine = true;
+
+                        int tagIndent = currentIndent;
+                        string[] rawLines;
+                        int baseIndent = -1;
+                        size_t blockStartLine = lineNum;
+
+                        while (cursor < input.length) {
+                            size_t lineStartCur = cursor;
+                            size_t lineStartLine = lineNum;
+
+                            size_t scanCur = cursor;
+                            int lineIndent = 0;
+                            bool isEmpty = true;
+
+                            while (scanCur < input.length && input[scanCur] != '\n' && input[scanCur] != '\r') {
+                                if (input[scanCur] != ' ' && input[scanCur] != '\t') {
+                                    isEmpty = false;
+                                    break;
+                                }
+                                lineIndent += (input[scanCur] == '\t') ? 4 : 1;
+                                scanCur++;
+                            }
+
+                            if (isEmpty) {
+                                rawLines ~= "";
+                                cursor = scanCur;
+                                if (cursor < input.length && input[cursor] == '\r') cursor++;
+                                if (cursor < input.length && input[cursor] == '\n') cursor++;
+                                lineNum++; colNum = 1;
+                            } else {
+                                if (lineIndent > tagIndent) {
+                                    if (baseIndent == -1) baseIndent = lineIndent;
+                                    
+                                    size_t stripCur = lineStartCur;
+                                    int strippedCols = 0;
+                                    while (stripCur < input.length && strippedCols < baseIndent && 
+                                           (input[stripCur] == ' ' || input[stripCur] == '\t')) {
+                                        strippedCols += (input[stripCur] == '\t') ? 4 : 1;
+                                        stripCur++;
+                                    }
+
+                                    string lineContent = "";
+                                    while (stripCur < input.length && input[stripCur] != '\n' && input[stripCur] != '\r') {
+                                        lineContent ~= input[stripCur];
+                                        stripCur++;
+                                    }
+
+                                    rawLines ~= lineContent;
+                                    cursor = stripCur;
+                                    if (cursor < input.length && input[cursor] == '\r') cursor++;
+                                    if (cursor < input.length && input[cursor] == '\n') cursor++;
+                                    lineNum++; colNum = 1;
+                                } else {
+                                    cursor = lineStartCur;
+                                    lineNum = lineStartLine;
+                                    colNum = 1;
+                                    break;
+                                }
+                            }
+                        }
+
+                        while (rawLines.length > 0 && rawLines[$ - 1].length == 0) {
+                            rawLines.length--;
+                        }
+
+                        if (rawLines.length > 0) {
+                            tokens ~= Token(TokenType.Indent, to!string(baseIndent > 0 ? baseIndent : tagIndent + 4), blockStartLine, 1);
+                            tokens ~= Token(TokenType.String, rawLines.join("\n"), blockStartLine, 1);
+                            tokens ~= Token(TokenType.EOL, "", lineNum > 1 ? lineNum - 1 : 1, 1);
+                        }
+                    }
+                }
+            }
             else if (c == ';') { tokens ~= Token(TokenType.Semicolon, ";", lineNum, col); cursor++; colNum++; }
             else if (c == '(') { tokens ~= Token(TokenType.LParen, "(", lineNum, col); cursor++; colNum++; }
             else if (c == ')') { tokens ~= Token(TokenType.RParen, ")", lineNum, col); cursor++; colNum++; }
@@ -116,6 +222,7 @@ class Lexer {
             else if (c == ',') { tokens ~= Token(TokenType.Comma, ",", lineNum, col); cursor++; colNum++; }
             else if (c == '~') { tokens ~= Token(TokenType.Tilde, "~", lineNum, col); cursor++; colNum++; }
             else if (c == '!') { tokens ~= Token(TokenType.Exclamation, "!", lineNum, col); cursor++; colNum++; }
+            else if (c == '?') { tokens ~= Token(TokenType.QuestionMark, "?", lineNum, col); cursor++; colNum++; }
             else if (c == '$') { tokens ~= Token(TokenType.Dollar, "$", lineNum, col); cursor++; colNum++; }
             else if (c == '&') { tokens ~= Token(TokenType.Ampersand, "&", lineNum, col); cursor++; colNum++; }
             
@@ -164,6 +271,9 @@ class Lexer {
                 while (cursor < input.length && (isAlphaNum(input[cursor]) || input[cursor] == '_' || input[cursor] == '-')) {
                     ident ~= input[cursor];
                     cursor++; colNum++;
+                }
+                if (currentLineTag == "") {
+                    currentLineTag = ident;
                 }
                 tokens ~= Token(TokenType.Tag, ident, lineNum, col);
             } else {
@@ -221,9 +331,9 @@ class Parser {
             Token indentTok = consume();
             int indent = to!int(indentTok.value);
 
-            
             if (peek().type != TokenType.Tag && peek().type != TokenType.Ampersand && 
-                peek().type != TokenType.At && peek().type != TokenType.Dollar) {
+                peek().type != TokenType.At && peek().type != TokenType.Dollar &&
+                peek().type != TokenType.String && peek().type != TokenType.AtString) {
                 while (pos < tokens.length && peek().type != TokenType.EOL) pos++;
                 continue;
             }
@@ -258,6 +368,14 @@ class Parser {
     }
 
     private ASTNode parseLineNode(int currentIndent) {
+        if (peek().type == TokenType.String || peek().type == TokenType.AtString) {
+            Token strTok = consume();
+            ASTNode node = new ASTNode(NodeType.Text);
+            node.textValue = strTok.value;
+            if (peek().type == TokenType.Semicolon) consume();
+            return node;
+        }
+
         if (peek().type == TokenType.Ampersand) {
             consume();
             ASTNode node = new ASTNode(NodeType.ClassCall);
@@ -288,7 +406,6 @@ class Parser {
             return node;
         }
 
-        
         if (peek().type == TokenType.Dollar) {
             consume();
             ASTNode node = new ASTNode(NodeType.Variable);
@@ -362,6 +479,158 @@ class Parser {
         return node;
     }
 
+    private ASTNode parseSingleInlineNode(int baseIndent) {
+        Token current = peek();
+        
+        if (current.type == TokenType.String || current.type == TokenType.AtString) {
+            consume();
+            ASTNode textNode = new ASTNode(NodeType.Text);
+            textNode.textValue = (current.type == TokenType.AtString) 
+                ? stripMultilineIndent(current.value, baseIndent) : current.value;
+            return textNode;
+        } 
+        else if (current.type == TokenType.Dollar) {
+            consume(); 
+            string vName = consume().value;
+            while (peek().type == TokenType.Dot) {
+                consume();
+                if (peek().type == TokenType.Tag) vName ~= "." ~ consume().value;
+            }
+            ASTNode varNode = new ASTNode(NodeType.Variable);
+            varNode.varName = vName;
+            return varNode;
+        }
+        else if (current.type == TokenType.Tag) {
+            Token inlineTagTok = consume();
+            
+            ASTNode inlineNode = new ASTNode(NodeType.Element);
+            inlineNode.tag = inlineTagTok.value;
+            inlineNode.isInline = true;
+            
+            while (peek().type == TokenType.Dot || peek().type == TokenType.Hash) {
+                Token modTok = consume();
+                if (peek().type == TokenType.Tag) {
+                    if (modTok.type == TokenType.Dot) inlineNode.classes ~= consume().value;
+                    else inlineNode.id = consume().value;
+                } else {
+                    printError(peek().line, peek().column, "Expected identifier after . or #");
+                    hasErrors = true; return null;
+                }
+            }
+            
+            if (peek().type == TokenType.Exclamation) {
+                consume();
+                if (peek().type == TokenType.LParen) {
+                    consume();
+                    parseInlineArguments(inlineNode, baseIndent);
+                } else {
+                    printError(peek().line, peek().column, "Expected '(' after '!' for inline tag");
+                    hasErrors = true; return null;
+                }
+            } else if (peek().type == TokenType.QuestionMark) {
+                consume();
+                inlineNode.isSelfClosing = true;
+                if (peek().type == TokenType.LParen) {
+                    consume();
+                    parseAttributes(inlineNode);
+                }
+            } else {
+                printError(inlineTagTok.line, inlineTagTok.column, "Expected '!' or '?' after inline tag");
+                hasErrors = true; return null;
+            }
+            return inlineNode;
+        }
+        else if (current.type == TokenType.Ampersand) {
+            consume();
+            if (peek().type != TokenType.Tag) {
+                printError(peek().line, peek().column, "Expected component name after &");
+                hasErrors = true; return null;
+            }
+            Token compTok = consume();
+            
+            ASTNode compNode = new ASTNode(NodeType.ClassCall);
+            compNode.className = compTok.value;
+            compNode.isInline = true;
+            
+            if (peek().type == TokenType.Exclamation) {
+                consume();
+                if (peek().type == TokenType.LParen) {
+                    consume();
+                    parseInlineArguments(compNode, baseIndent);
+                } else {
+                    printError(peek().line, peek().column, "Expected '(' after '!' for inline component");
+                    hasErrors = true; return null;
+                }
+            } else if (peek().type == TokenType.QuestionMark) {
+                consume();
+                compNode.isSelfClosing = true;
+                if (peek().type == TokenType.LParen) {
+                    consume();
+                    parseAttributes(compNode);
+                }
+            } else if (peek().type == TokenType.LParen) {
+                consume();
+                parseAttributes(compNode);
+            }
+            return compNode;
+        }
+        
+        return null;
+    }
+
+    private void parseInlineArguments(ASTNode node, int baseIndent) {
+        Token pt = peek();
+        bool isBody = false;
+        
+        if (pt.type == TokenType.String || pt.type == TokenType.AtString || 
+            pt.type == TokenType.Dollar || pt.type == TokenType.Ampersand) {
+            isBody = true;
+        } else if (pt.type == TokenType.Tag) {
+            size_t lookahead = pos;
+            bool foundBang = false;
+            while (lookahead < tokens.length) {
+                TokenType lt = tokens[lookahead].type;
+                if (lt == TokenType.Exclamation || lt == TokenType.QuestionMark) { foundBang = true; break; }
+                if (lt == TokenType.Equals || lt == TokenType.Comma || lt == TokenType.RParen) { break; }
+                lookahead++;
+            }
+            if (foundBang) isBody = true;
+        }
+        
+        if (isBody) {
+            bool expectingOperator = false;
+            while (pos < tokens.length && peek().type != TokenType.Comma && peek().type != TokenType.RParen) {
+                Token current = peek();
+                if (current.type == TokenType.String || current.type == TokenType.AtString || 
+                    current.type == TokenType.Tag || current.type == TokenType.Dollar || 
+                    current.type == TokenType.Ampersand) {
+                    
+                    if (expectingOperator) {
+                        printError(current.line, current.column, "Missing '~' operator");
+                        hasErrors = true; break;
+                    }
+                    
+                    ASTNode bNode = parseSingleInlineNode(baseIndent);
+                    if (bNode !is null) node.children ~= bNode;
+                    expectingOperator = true;
+                    
+                } else if (current.type == TokenType.Tilde) {
+                    if (!expectingOperator) {
+                        printError(current.line, current.column, "Unexpected '~' operator");
+                        hasErrors = true; break;
+                    }
+                    consume();
+                    expectingOperator = false;
+                } else {
+                    break;
+                }
+            }
+            if (peek().type == TokenType.Comma) consume();
+        }
+        
+        parseAttributes(node);
+    }
+
     private void parseAttributes(ASTNode node) {
         while (peek().type != TokenType.RParen && peek().type != TokenType.EOL) {
             if (peek().type == TokenType.Tag) {
@@ -386,7 +655,15 @@ class Parser {
                 } else {
                     node.attributes[attrName] = ""; 
                 }
+            } else {
+                Token errTok = consume();
+                if (errTok.type != TokenType.Comma) {
+                    printError(errTok.line, errTok.column, "Expected attribute name");
+                    hasErrors = true;
+                }
+                continue;
             }
+            
             if (peek().type == TokenType.Comma) consume();
         }
         
@@ -404,87 +681,20 @@ class Parser {
             Token current = peek();
 
             if (current.type == TokenType.String || current.type == TokenType.AtString || 
-                current.type == TokenType.Tag || current.type == TokenType.Dollar) {
+                current.type == TokenType.Tag || current.type == TokenType.Dollar || 
+                current.type == TokenType.Ampersand) {
                 
                 if (expectingOperator) {
                     printError(current.line, current.column, "Missing '~' operator");
                     hasErrors = true; return false;
                 }
 
-                if (current.type == TokenType.String || current.type == TokenType.AtString) {
-                    consume();
-                    ASTNode textNode = new ASTNode(NodeType.Text);
-                    textNode.textValue = (current.type == TokenType.AtString) 
-                        ? stripMultilineIndent(current.value, baseIndent) : current.value;
-                    parent.children ~= textNode;
-                } 
-                else if (current.type == TokenType.Dollar) {
-                    consume(); 
-                    string vName = consume().value;
-                    while (peek().type == TokenType.Dot) {
-                        consume();
-                        if (peek().type == TokenType.Tag) vName ~= "." ~ consume().value;
-                    }
-                    ASTNode varNode = new ASTNode(NodeType.Variable);
-                    varNode.varName = vName;
-                    parent.children ~= varNode;
-                }
-                else if (current.type == TokenType.Tag) {
-                    Token inlineTagTok = consume();
-                    
-                    ASTNode inlineNode = new ASTNode(NodeType.Element);
-                    inlineNode.tag = inlineTagTok.value;
-                    inlineNode.isInline = true;
-                    
-                    while (peek().type == TokenType.Dot || peek().type == TokenType.Hash) {
-                        Token modTok = consume();
-                        if (peek().type == TokenType.Tag) {
-                            if (modTok.type == TokenType.Dot) {
-                                inlineNode.classes ~= consume().value;
-                            } else {
-                                inlineNode.id = consume().value;
-                            }
-                        } else {
-                            printError(peek().line, peek().column, "Expected identifier after . or #");
-                            hasErrors = true; return false;
-                        }
-                    }
-                    
-                    if (peek().type == TokenType.Exclamation) {
-                        consume();
-                        
-                        if (peek().type == TokenType.LParen) {
-                            consume();
-                            parseAttributes(inlineNode);
-                        }
-                        
-                        if (peek().type == TokenType.String || peek().type == TokenType.AtString) {
-                            Token bodyTok = consume();
-                            ASTNode textNode = new ASTNode(NodeType.Text);
-                            textNode.textValue = bodyTok.value;
-                            inlineNode.children ~= textNode;
-                        } else if (peek().type == TokenType.Dollar) {
-                            consume();
-                            string vName = consume().value;
-                            while (peek().type == TokenType.Dot) {
-                                consume();
-                                if (peek().type == TokenType.Tag) vName ~= "." ~ consume().value;
-                            }
-                            ASTNode varNode = new ASTNode(NodeType.Variable);
-                            varNode.varName = vName;
-                            inlineNode.children ~= varNode;
-                        } else {
-                            printError(peek().line, peek().column, "Expected string or variable in inline tag");
-                            hasErrors = true; return false;
-                        }
-                        
-                        parent.children ~= inlineNode;
-                    } else {
-                        printError(inlineTagTok.line, inlineTagTok.column, "Expected '!' after inline tag");
-                        hasErrors = true; return false;
-                    }
-                }
+                ASTNode node = parseSingleInlineNode(baseIndent);
+                if (node is null) return false;
+                
+                parent.children ~= node;
                 expectingOperator = true;
+                
             } else if (current.type == TokenType.Tilde) {
                 if (!expectingOperator) {
                     printError(current.line, current.column, "Unexpected '~' operator");
@@ -582,7 +792,8 @@ class HtmlGenerator {
             }
             
             ASTNode def = classDefs[node.className];
-            string result = indentStr ~ "<div class=\"" ~ node.className ~ "\">\n";
+            string nl = (level >= 0) ? "\n" : "";
+            string result = indentStr ~ "<div class=\"" ~ node.className ~ "\">" ~ nl;
             
             string[string] newVars;
             foreach(k, v; node.attributes) newVars[k] = v;
@@ -601,10 +812,10 @@ class HtmlGenerator {
             newSlots["children"] = defaultChildren;
             
             foreach(child; def.children) {
-                result ~= generate(child, level + 1, newVars, newSlots);
+                result ~= generate(child, (level >= 0) ? level + 1 : -1, newVars, newSlots);
             }
             
-            result ~= indentStr ~ "</div>\n";
+            result ~= indentStr ~ "</div>" ~ nl;
             return result;
         }
 
@@ -614,10 +825,10 @@ class HtmlGenerator {
             return indentStr ~ "<" ~ node.tag ~ htmlAttrs ~ " />\n";
         }
 
-        bool isInlineContent = (node.children.length > 0);
+        bool isInlineContent = (node.children.length > 0) || (node.tag == "script" || node.tag == "style");
         foreach (child; node.children) {
             if ((child.type == NodeType.Element && !child.isInline) || 
-                child.type == NodeType.ClassCall || 
+                (child.type == NodeType.ClassCall && !child.isInline) || 
                 child.type == NodeType.SlotBlock) {
                 isInlineContent = false;
                 break;
@@ -663,6 +874,8 @@ class HtmlGenerator {
                 } else {
                     result ~= "<" ~ child.tag ~ childAttrs ~ ">" ~ renderChildrenInline(child, vars, slots) ~ "</" ~ child.tag ~ ">";
                 }
+            } else if (child.type == NodeType.ClassCall) {
+                result ~= generate(child, -1, vars, slots);
             }
         }
         return result;
@@ -759,10 +972,6 @@ void openInBrowser(string url) {
         spawnShell("xdg-open " ~ url);
     }
 }
-
-
-
-
 
 SysTime[string] getFileModificationTimes(string targetPath) {
     SysTime[string] times;
@@ -891,7 +1100,7 @@ void main(string[] args) {
             break;
 
         case "about":
-            writeln("\033[1;35mSHML Sts Compiler version 0.1.0\033[0m");
+            writeln("\033[1;35mSHML Sts Compiler version 0.1.2\033[0m");
             break;
 
         default:

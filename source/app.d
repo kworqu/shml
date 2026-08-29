@@ -179,6 +179,10 @@ void printError(size_t line, size_t col, string msg) {
     writefln("\033[1;31m[!] %d:%d error: %s\033[0m", line, col, msg);
 }
 
+void printErrorClear(string msg) {
+    writefln("\033[1;31m[!] Error: %s\033[0m", msg);
+}
+
 
 // Parser
 
@@ -303,7 +307,7 @@ class Parser {
 
         Token tagTok = consume();
 
-        if (tagTok.value == "class") {
+        if (tagTok.value == "component") {
             ASTNode node = new ASTNode(NodeType.Element);
             node.isClassDef = true;
             node.className = consume().value;
@@ -552,7 +556,8 @@ class HtmlGenerator {
 
         if (node.type == NodeType.ClassCall) {
             if (node.className !in classDefs) {
-                return indentStr ~ "<!-- Error: Class '" ~ node.className ~ "' not found -->\n";
+                printErrorClear("An unformed component was used: " ~ node.className);
+                return indentStr ~ "<!-- Error: Component '" ~ node.className ~ "' not found -->\n";
             }
             
             ASTNode def = classDefs[node.className];

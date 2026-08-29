@@ -6,7 +6,7 @@ A lightweight, indentation-based markup compiler written in D. SHML allows you t
 [![Language: D](https://img.shields.io/badge/Language-D-red.svg?logo=d)](https://dlang.org/)
 [![Status](https://img.shields.io/badge/Status-Active_Development-orange.svg)](#)
 [![Build Tool](https://img.shields.io/badge/Build-DUB-brightgreen.svg)](https://dub.pm/)
-[![Version](https://img.shields.io/badge/Version-0.1.0-blue.svg)](#)
+[![Version](https://img.shields.io/badge/Version-0.1.2-blue.svg)](#)
 [![License](https://img.shields.io/badge/License-MIT-purple.svg)](#)
 
 ## Features
@@ -80,7 +80,7 @@ html:
     head:
         title: "SHML Demo Page";
     body.theme-dark#main-body:
-        h1: "Welcome to " ~ span!"SHML" ~ " Compiler!";
+        h1: "Welcome to " ~ span!("SHML") ~ " Compiler!";
         
         &Card(title="My First Component"):
             p: @"This is passed inside the default slot/children block.
@@ -101,7 +101,7 @@ html:
                 <h2>My First Component</h2>
             </div>
             <div class="card-body">
-                <p>This is passed inside the default slot/children block.</p>
+                <p>This is passed inside the default slot/children block.<br>And this is new line!</p>
             </div>
         </div>
     </body>

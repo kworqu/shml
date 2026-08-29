@@ -274,7 +274,12 @@ class Parser {
                 printError(peek().line, peek().column, "Expected slot name after @");
                 hasErrors = true; return null;
             }
-            if (peek().type == TokenType.Colon) consume();
+            if (peek().type == TokenType.Colon) {
+                consume();
+                if (peek().type != TokenType.EOL) {
+                    if (!parseConcatExpression(node, currentIndent)) return null;
+                }
+            }
             return node;
         }
 
